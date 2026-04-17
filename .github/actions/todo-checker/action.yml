@@ -1,0 +1,11 @@
+name: "TODO Checker"
+description: "Scans PRs for TODO comments and posts a summary"
+
+inputs:
+  github-token:
+    description: "GitHub token for posting comments"
+    required: true
+
+runs:
+  using: "node20"
+  main: "index.js"

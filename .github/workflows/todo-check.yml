@@ -1,0 +1,21 @@
+name: Check for TODOs
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  todo-check:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write   # needed to post comments
+      contents: read
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Run TODO checker
+        uses: ./.github/actions/todo-checker
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
