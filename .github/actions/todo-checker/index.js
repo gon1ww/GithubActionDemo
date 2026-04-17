@@ -7,7 +7,6 @@ async function run() {
     const octokit = github.getOctokit(token);
     const context = github.context;
 
-    // Only run on pull requests
     if (!context.payload.pull_request) {
       core.info("Not a PR — skipping.");
       return;
@@ -16,55 +15,75 @@ async function run() {
     const { owner, repo } = context.repo;
     const pull_number = context.payload.pull_request.number;
 
-    // Fetch the PR diff
     const { data: files } = await octokit.rest.pulls.listFiles({
       owner,
       repo,
       pull_number,
     });
 
-    // Scan each changed file for TODO lines
     const todos = [];
 
     for (const file of files) {
-      if (!file.patch) continue; // binary files have no patch
+      if (!file.patch) continue;
 
       const lines = file.patch.split("\n");
       lines.forEach((line, i) => {
-        // Only check added lines (start with '+', not '++')
         if (line.startsWith("+") && !line.startsWith("+++")) {
-          const match = line.match(/TODO[:\s].+/i);
+          const match = line.match(/(TODO|FIXME|HACK)[:\s].+/i);
           if (match) {
             todos.push({
               file: file.filename,
               line: i + 1,
               text: match[0].trim(),
+              type: match[1].toUpperCase(),
             });
           }
         }
       });
     }
 
-    // Build the comment body
+    // 构建评论内容
     let body;
     if (todos.length === 0) {
-      body = "✅ **TODO Checker:** No new TODO comments found in this PR.";
+      body = "✅ **TODO Checker:** No new TODO / FIXME / HACK comments found.";
     } else {
       const rows = todos
-        .map((t) => `| \`${t.file}\` | ${t.line} | \`${t.text}\` |`)
+        .map((t) => `| \`${t.file}\` | ${t.line} | \`${t.type}\` | ${t.text} |`)
         .join("\n");
-      body = `## TODO Checker found ${todos.length} TODO(s)\n\n| File | Diff line | Comment |\n|------|-----------|--------|\n${rows}\n\n_Consider resolving these before merging._`;
+      body = `## TODO Checker found ${todos.length} item(s)\n\n| File | Diff line | Type | Comment |\n|------|-----------|------|---------|\n${rows}\n\n_Consider resolving these before merging._`;
     }
 
-    // Post the comment
-    await octokit.rest.issues.createComment({
+    // 查找已有的 bot 评论
+    const { data: comments } = await octokit.rest.issues.listComments({
       owner,
       repo,
       issue_number: pull_number,
-      body,
     });
 
-    core.info(`Done. Found ${todos.length} TODO(s).`);
+    const botComment = comments.find(c =>
+      c.user.type === "Bot" && c.body.includes("TODO Checker")
+    );
+
+    // 更新或新建
+    if (botComment) {
+      await octokit.rest.issues.updateComment({
+        owner,
+        repo,
+        comment_id: botComment.id,
+        body,
+      });
+      core.info("Updated existing comment.");
+    } else {
+      await octokit.rest.issues.createComment({
+        owner,
+        repo,
+        issue_number: pull_number,
+        body,
+      });
+      core.info("Posted new comment.");
+    }
+
+    core.info(`Done. Found ${todos.length} item(s).`);
   } catch (err) {
     core.setFailed(err.message);
   }
